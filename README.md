@@ -1,185 +1,124 @@
-此插件为了解决pve虚拟机特别针对cdn平台带宽限速，解决流量超发的问题
-后续还会增加流量自适应模块以此来适配cnd虚拟机的上传流量捕捉，以提升平台收益
+# CDN 调度控制台 3.1
 
-# PVE 网卡限速 v2.0.0
+用于 Proxmox VE 9.2.2 / Linux bridge / QEMU 虚拟机的本地扩展。沿用 PVE root@pam 登录，顶部原生蓝色“网卡限速”入口，不新增公网管理端口。版本文件使用 3.1.0。
 
-本版整合 PVE 页面入口、中文参数编码和界面缓存修复，入口统一为蓝底白字“网卡限速”。
+## 先看 Web 界面
 
-支持每天、每周指定日期、仅一次、跨午夜，以及多虚拟机/多网卡独立规则。沿用 PVE 的 root@pam 登录，无独立管理密码和额外对外管理端口。上下行分别采用同一限速值，关闭时完全解除限速。
+打开交付目录的“CDN调度控制台-3.1-Web预览.html”，无需安装、联网或登录 PVE。页面中的主机、流量与一键抓包结果为明确标记的演示数据，操作仅改变当前网页内存。可切换总览、网卡规则、带宽计量、上行抓包、执行记录和设置；真实上传的 PCAP 在浏览器 Worker 中本地解析。预览不连接你的主机。
 
-从 1.x 升级可使用同一安装器，保留规则。安装前备份、文件核验、宿主机中文回归测试、失败恢复和卸载清理已纳入安装流程。安装会短暂重启 PVE 管理服务，不重启虚拟机。
+## 3.1 功能
 
-适用目标：PVE 9.2.2、QEMU 虚拟机、Linux bridge。第三方本地扩展，PVE 更新后可能需要重新安装入口。本版完整包仍需主机上的时段切换和流量验收，不能把离线测试等同全部实机通过。
+- 苹果风格浅色界面、侧栏导航、柔和圆角、清晰层级；主标题“CDN 调度控制台”，移除顶部写死时段的说明。
+- 明确区分“生效规则”与“正在限速”，高峰上行放开仍算规则正常生效。
+- 每张网卡独立设置午/晚高峰，默认策略 11:30–14:00、17:00–次日 00:00；自定义支持跨午夜，两个高峰不能重叠或首尾相接，必须留下两个非高峰区间。
+- 高峰解除本程序上行限制；晚高峰结束至午高峰开始使用第一组自适应范围，午高峰结束至晚高峰开始使用第二组；下行不设本程序上限。最低上限不是实际流量保证。
+- 带宽计量显示上传/下载累计与实时速度、按日期/网卡筛选、15 分钟历史均值曲线、双向 CSV。保留今天与前 6 个自然日，每分钟清理。没有有效采样时显示不可用。
+- 一键选择 VM/网卡、省份、运营商，抓 30/60/120 秒上行，分析出省、跨运营商、地域/运营商分布、TOP 对端和上行曲线。tcpdump 不可用时给出安装提示，不影响基础调度。
+- PCAP/PCAPNG 文件可在浏览器本地导入，需填写服务器 IP 确定上行方向，支持多个 IPv4/IPv6。多接口 PCAPNG 拒绝直接相加，提示导出单接口。
 
-附件：
+## 地域和运营商分析的前提
 
-- `pve-rate-manager-2.0.0.tar.gz`：宿主机安装/升级。
-- `SHA256SUMS`：安装包校验值。
+**安装包没有附带商业或未经授权的 IP 归属数据库，也不会访问第三方抓包网站。** 设置 → 导入归属数据库 CSV。字段为 network,country,region,isp，network 是 IPv4/IPv6 CIDR，country 使用 CN 等国家代码；支持最长前缀匹配。文件最多 8 MiB / 150000 条网段。可下载格式示例，但示例不是可用于生产的数据库。需自行取得有权使用且覆盖目标地区的数据，并保持更新。
 
-详细使用、回滚、卸载及发布步骤见 README。
-# PVE 网卡限速 3.0.0
+没有归属库时仍能采集、查看对端和上行曲线，出省/跨运营商显示“不可计算”。无法识别、境外、内网与保留地址单列，云服务商不会被强行归为电信/联通/移动。
 
-在 PVE 顶部点击蓝色“网卡限速”，沿用 root@pam 登录。新版本加入上行自适应和每日上行流量记录，不需要独立密码或额外 TCP 管理端口。
+出省比例=境内已识别省份的外省上行字节/境内已识别省份的上行字节。跨运营商比例使用境内已识别运营商的字节作分母，分别显示识别覆盖率。抓包样本不代表全天，IP 归属不证明实际传输路径，不等于平台有效流量/账单/收益。
 
-面向 Proxmox VE 9.2.2、Linux bridge、QEMU 虚拟机的第三方扩展。当前交付已完成离线测试，真实 PVE 的内核流控和浏览器验收仍需在部署主机执行，见 VALIDATION.md。
+## 安装 / 从 2.0、3.0 升级
 
-## 新模式的时间安排
-
-| 宿主机本地时间 | 上行 | 下行 |
-|---|---|---|
-| 00:00–11:30 | 在你填写的上午最低/最高上限之间调整 | 不设本程序限速 |
-| 11:30–14:00 | 完全解除本程序限速 | 不设本程序限速 |
-| 14:00–17:00 | 在你填写的下午最低/最高上限之间调整 | 不设本程序限速 |
-| 17:00–次日 00:00 | 完全解除本程序限速 | 不设本程序限速 |
-
-两个非高峰范围分别填写，没有预设速度。最低值是“自动调整的速度上限”的下界，不保证平台一定产生这么多流量。最低=最高时，该时段使用固定上行上限。范围允许 0.001–1000000 MB/s、最多三位小数；硬件实际能达到的速度仍受线路、平台和虚拟机限制。内部以每 MB 1024² 字节计算，与原 PVE rate 的单位习惯一致。
-
-自适应根据发送需求和队列积压逐步调整：初次从最低上限开始，连续有需求时提高，上限调整至少间隔 30 秒；持续低利用且无积压约 120 秒后缓慢回落。它不探测运营商剩余带宽，也不保证收益提高。高峰期不执行自适应压速。
-
-## 从 2.0 升级
-
-旧规则保留原来的固定双向限速、每天/每周/仅一次安排。升级不会默默把旧规则转换成单向控制。
-
-要使用新功能：编辑旧规则，选择“高峰放开 · 非高峰上行自适应”，填写两个范围，预览并保存。这个操作会删除此网卡原有的 PVE 双向 rate，改用 TAP ingress → 独立 IFB/HTB 的上行控制；MAC、bridge、VLAN、firewall、queues 和其它网卡参数保留。新安装默认没有规则。
-
-## 最方便的安装方式
-
-将 install-pve-rate-manager-3.0.0.sh 上传到 PVE 宿主机 /root，然后以 root 打开宿主机 Shell：
+不需要先卸载。把 install-pve-rate-manager-3.1.0.sh 传到宿主机 /root，在宿主机 root Shell 执行：
 
 ~~~bash
-cd /root
-bash install-pve-rate-manager-3.0.0.sh --check
-bash install-pve-rate-manager-3.0.0.sh
+bash /root/install-pve-rate-manager-3.1.0.sh --check
+bash /root/install-pve-rate-manager-3.1.0.sh
 ~~~
 
-第一条只核验内嵌包和文件完整性，不修改 PVE。第二条自动校验、临时展开并安装，不需要你手动解压。脚本还支持 --uninstall，保留该文件便于卸载。不要在 PVE 存储的“导入/从 URL 下载”对话框里安装程序。
+--check 仅校验内嵌包，不修改 PVE；正常执行自动临时展开，不需手动解压。安装保存程序/PVE 集成快照，校验文件、运行离线与 PVE Perl 中文测试，失败尝试还原。短暂重启 PVE 管理服务，网页可能断开，不重启虚拟机。完成后 Ctrl+F5，使用 root@pam 点击蓝色“网卡限速”。安装期间不要编辑规则。
 
-安装会保存安装前备份，并短暂重启 pvedaemon/pveproxy，管理网页和 Shell 可能断开；不会重启虚拟机。重新连接后用 root@pam 登录，按 Ctrl+F5，点击“网卡限速”。升级保留规则，后台按当前时段继续执行；安装期间请勿同时编辑规则。
+旧固定双向规则仍保持原方向及每天/每周/仅一次策略。已有 3.0 自适应规则自动采用默认高峰；新安装不创建任何默认规则。首次启动 3.1 以 SQLite 一致性备份复制 3.0 统计到独立 traffic-3.1.sqlite3，再迁移结构；原 traffic.sqlite3 保留，便于安装失败恢复原程序。旧下载数据不存在，显示“暂无历史”，不会补为真实零流量。原库可能额外占用约 32 MiB。
 
-## GitHub URL 安装
+修改高峰时段前按旧策略结算可读取的增量，修改后按新策略采集；历史分项不重算。网卡停机时允许编辑，重新采样会建立新起点，间断不追溯。
 
-先把本次发布的单文件安装脚本和 SHA256SUMS 上传到仓库根目录并提交。下面地址在上传后才有效；本次没有替你发布到 GitHub。
+### 通过 PVE 网页传 ISO
+
+可以使用 pve-rate-manager-3.1.0.iso（真正的 ISO9660 数据光盘，包含同一个安装器）。在 local → ISO 镜像 → 上传；或上传 GitHub 后使用文件直链“从 URL 下载”。下载只存储文件，不会自动安装。完成后在宿主机 Shell：
 
 ~~~bash
 (
 set -e
-cd "$(mktemp -d /root/pve-rate-v3.XXXXXX)"
-curl -fL --retry 3 -o install-pve-rate-manager-3.0.0.sh \
-  https://raw.githubusercontent.com/xuwenju2019-ui/pve-rate-manager/main/install-pve-rate-manager-3.0.0.sh
-curl -fL --retry 3 -o SHA256SUMS \
-  https://raw.githubusercontent.com/xuwenju2019-ui/pve-rate-manager/main/SHA256SUMS
-grep '  install-pve-rate-manager-3.0.0.sh$' SHA256SUMS | sha256sum -c -
-bash install-pve-rate-manager-3.0.0.sh
+PRM_MOUNT=$(mktemp -d /mnt/pve-rate.XXXXXX)
+trap 'if mountpoint -q "$PRM_MOUNT"; then umount "$PRM_MOUNT"; fi; rmdir "$PRM_MOUNT"' EXIT
+mount -t iso9660 -o loop,ro "$(pvesm path local:iso/pve-rate-manager-3.1.0.iso)" "$PRM_MOUNT"
+bash "$PRM_MOUNT/install.sh" --check
+bash "$PRM_MOUNT/install.sh"
 )
 ~~~
 
-校验和用于检查文件损坏，来源信任依赖 HTTPS 和你的 GitHub 仓库。建议先核对下载脚本，再执行；不使用 curl 管道直接执行。标准源码包 pve-rate-manager-3.0.0.tar.gz 也可解压后运行 bash install.sh。
+不要把 GitHub /blob/main/ 网页地址当文件直链；HTML 文件不能挂载成 ISO。镜像供宿主机读取安装器，不需要挂到虚拟机，也不是启动盘。
 
-## 鼠标操作
+### GitHub URL
 
-1. 添加规则，选择当前节点的虚拟机 ID 和网卡。100 是 VM ID，不是宿主机编号。
-2. 选择自适应模式，填写上午和下午各自的最低、最高上限。
-3. 点击“预览当前效果”；预览不会修改网卡。
-4. 保存后查看规则状态、当前上限、下一次切换和执行记录。
-5. 在“每日上行流量”选择日期和网卡；可以查看今天或最近 7 天并导出 CSV。
+先将 GitHub 上传包里的目录内容提交到仓库根目录，以下地址才会存在。此交付未替你发布。
 
-一张网卡只能有一条规则，新模式已包含上述四个时段。不同 VM、不同网卡可分别配置，单节点最多 128 条规则。关闭单条规则或暂停总调度，会尝试完全解除对应规则的限速；显示失败时不能视为已经解除。暂停调度不停止流量采集。
+~~~bash
+(
+set -e
+cd "$(mktemp -d /root/pve-rate31.XXXXXX)"
+curl -fL --connect-timeout 10 --max-time 90 -o install-pve-rate-manager-3.1.0.sh \
+  https://raw.githubusercontent.com/xuwenju2019-ui/pve-rate-manager/main/install-pve-rate-manager-3.1.0.sh
+bash install-pve-rate-manager-3.1.0.sh --check
+bash install-pve-rate-manager-3.1.0.sh
+)
+~~~
 
-“程序运行中”表示能连到后台；“调度开启”表示自动执行；规则的“正在限速/未限速/失败”表示最近检查结果。PVE 退出登录不影响后台运行。后台停止后，需要在 Shell 启动，网页不能启动已经停止的后台。
+宿主机访问 GitHub 的网络问题不会因换格式而消失，可在电脑下载 ISO 后用 PVE 网页上传。来源信任依赖你的仓库和 HTTPS，校验和仅检查完整性。
 
-## 每日流量的口径
+## 一键上行抓包
 
-- 采集所选 TAP 网卡 RX 字节，即虚拟机向宿主机发送的上行量。固定旧规则也可统计。
-- 这是流控前的网卡发送量，包含协议、重传、所选网卡上的内网流量和可能被流控丢弃的数据；不是公网成功到达量、PCDN 平台有效流量或运营商账单。
-- 以宿主机本地自然日分组，保留今天和前 6 天，正常运行时约每分钟清理一次；重新启动也会清理。删除规则后已有日记录保留至到期，不再采集该规则。
-- 显示总上行、午高峰、晚高峰、非高峰，内部保存原始字节；界面 GB=10⁹ 字节，速率 MB/s=1024² 字节/秒。
-- 每 5 秒采样、约每 60 秒落盘。跨午夜及高峰边界按采样间隔比例拆分，因此边界分桶是估算值。
-- 初次添加不追溯历史。网卡重建、VM/宿主机重启、计数器倒退等情况重新建立基线，并标记起点或间断，不能恢复停机期间已丢失的计数。
-- 若仅重启本程序且 TAP 计数连续，可从持久化基线恢复总增量；长间断会标记，时间段拆分精度下降。采样不可用或存储失败时页面显示原因，不把旧速度当成实时速度。
+选择已运行 QEMU VM 的实际网卡，程序从其 TAP 接口采集，使用 Linux 入站方向（对应虚拟机发出方向），不会采集整个 vmbr 或其它 VM。转发多个 MAC 的虚拟机也按接口方向采集。只分析 IPv4/IPv6 报文，支持 Ethernet/VLAN、RAW、Linux SLL/SLL2；不解密 HTTPS 内容。采集保存 128 字节头部片段，统计使用原始报文长度；不能保证片段完全不包含应用数据。
 
-## 控制范围与安全行为
+宿主机需有 tcpdump 和 nobody 用户，若未安装，可在确认软件源可用后用 apt install tcpdump。安装器不自动联网安装此可选依赖；缺少它时其它功能正常运行。捕获过程打开接口后由 tcpdump 降权，解析在独立 nobody 进程中进行，限制时间/内存/文件大小，不阻塞规则调度。
 
-自适应仅添加本规则拥有的 IFB 和 ingress 重定向，不替换 TAP 的 root/egress 队列。已有其它 ingress 流控、IFB 同名但所有权不匹配时拒绝接管。解除时只删除本程序的重定向和 IFB；保留空 clsact，避免破坏其它 egress 规则。
+每节点一个采集/分析任务，单次最多 100 MiB、总原始包预算 500 MiB，开始前检查磁盘余量。原始包 24 小时清理，报告最多保留 7 天/50 份。主动取消不生成报告。达到大小上限时提前结束，尾部不完整报文不参与统计，报告说明截断；采集丢包情况单列。不常驻全量抓包。
 
-保存规则即接管此网卡的限速。管理期间手动添加 PVE rate 会被自适应模式清除；需要手动管理时先删除规则。新模式不限制下行，但线路本身、其它外部流控或旧规则仍可能限制实际吞吐。
+界面显示 TOP 6 分布及 TOP 10 对端，CSV 对端最多 100 条；内部最多跟踪 10000 个对端，超限部分明确计入未知，不能假装已识别。外部导入限 100 MiB、5 分钟样本；浏览器解析超时会停止。原始报文长度包含协议和重传，抓包样本不会再次累计入带宽计量。
 
-VM 锁定、模板、pending 配置、摘要冲突、MAC 改变、备份失败时拒绝危险写入，不强制解锁、不清 pending、不重启 VM。MAC 改变时尝试解除本程序流控，需删除旧规则再新建。VM 停止时等待 TAP 出现；报错不会视为成功。每 5 秒检查，配置/流控通常每 30 秒重核对，PVE 操作耗时和规则数量可能延长响应，不是硬实时系统。
+## 空间、路径与节点范围
 
-程序正常停止会通过 ExecStopPost 清理本程序的上行 IFB。旧固定规则写入的 PVE rate 不因停服务自动消失。异常断电/清理失败时不可假设已经解除；恢复后检查状态，必要时运行下面的 release-all。数据库或规则损坏也会阻止启动，需要先处理错误。
+| 内容 | 路径 / 限额 |
+|---|---|
+| 规则 | /var/lib/pve-rate-manager/rules.json |
+| 新版统计与曲线 | /var/lib/pve-rate-manager/traffic-3.1.sqlite3，通常约 32 MiB 页上限 |
+| 原统计迁移备份 | /var/lib/pve-rate-manager/traffic.sqlite3，不由 3.1 自动删除 |
+| 程序日志 | /var/log/pve-rate-manager/manager.log，5 MiB × 5 |
+| 网卡写前备份 | 最多 100 个 / 约 10 MiB |
+| 集成备份 | 最多 20 个 / 约 64 MiB |
+| 安装快照 | 成功安装后最多 3 份 / 约 128 MiB |
+| 抓包、报告和归属库 | /var/cache/pve-rate-manager-capture，原始包最多 500 MiB，归属库最多 8 MiB，报告各有上限 |
 
-## 多宿主机与迁移
+限额不等于整块宿主机磁盘总容量保证，临时文件、SQLite journal、系统 journal 和手工备份另计。后台运行时每分钟清理过期数据；程序停止期间不执行清理，恢复后继续。浏览器本地导入的抓包报告仅存在于当前页面，不写入宿主机历史。
 
-每个 PVE 节点分别安装、分别登录管理：登录哪个节点地址，就管理那个节点。左侧树点击另一个节点不会切换本程序后台。没有跨节点同步配置、共享流量汇总或自动迁移跟随。
+每个节点分别安装，登录哪个节点地址就管理哪个节点；不自动跟随迁移，不在节点间同步配置或流量。迁移前先在原节点解除并删除规则，迁移后重新添加。保留 MAC、bridge、其它 net 参数与其它网卡；发现 pending/锁/摘要冲突时拒绝写入。
 
-迁移前在原节点删除规则并确认解除，迁移后在目标节点新建规则。其它主机可使用相同程序、不同 VM/NIC/速度范围；不要让两个节点同时接管同一 VM。
-
-## 检查、日志与空间
+## 检查与卸载
 
 ~~~bash
 systemctl status pve-rate-manager --no-pager
 pvesh get /rate-manager/status --output-format json
 python3 /opt/pve-rate-manager/integration.py check
-tail -n 80 /var/log/pve-rate-manager/manager.log
-timedatectl status
 ~~~
 
-| 内容 | 路径 | 清理策略 |
-|---|---|---|
-| 规则 | /var/lib/pve-rate-manager/rules.json | 原子保存，不循环增大 |
-| 每日流量 | /var/lib/pve-rate-manager/traffic.sqlite3 | 7 个自然日；数据库页数限制通常约 32 MiB |
-| 程序日志 | /var/log/pve-rate-manager/manager.log | 5 MiB × 5，约 25 MiB |
-| 网卡写前备份 | /var/lib/pve-rate-manager/backups | 最多 100 个且约 10 MiB |
-| PVE 集成备份 | /var/lib/pve-rate-manager/integration-backups | 自己命名的文件最多 20 个且约 64 MiB |
-| 成功安装后的快照 | /var/lib/pve-rate-manager/install-backups | 最多 3 份且约 128 MiB |
-| 私有接口 | /run/pve-rate-manager/api.sock | root 专用，不监听额外 TCP 端口 |
-
-限额是程序管理的数据量，不是整块宿主机磁盘用量保证；SQLite 日志、安装过程临时文件、系统 journal 另计。页面近期事件仅保留 100 条内存记录，显示最近 40 条，完整轮转文件用于排查。重复同类错误 15 分钟内去重，轮询不写访问日志；systemd 输出限频但不修改系统 journal 总容量配置。旧版本手动建的 entry-fix 备份目录不会擅自删除。失败安装留下的快照保留供恢复，下次成功安装会清理数字命名快照。
-
-## 停用与卸载
-
-暂时停止程序并解除所有管理规则的限速：
+先暂停调度确认解除，或临时停服后执行：
 
 ~~~bash
 systemctl stop pve-rate-manager
 python3 /opt/pve-rate-manager/manager.py release-all
 ~~~
 
-重新启用：
+卸载使用 bash /root/install-pve-rate-manager-3.1.0.sh --uninstall。先停服并解除规则，再撤销自己的 PVE 标记和文件；解除失败时中止，不继续删除。规则、统计、抓包数据和备份保留，重新安装可继续使用。不要用旧完整 PVE 文件覆盖更新后的文件。
 
-~~~bash
-systemctl enable --now pve-rate-manager
-~~~
+## 验证边界
 
-使用单文件安装器卸载，不需要手动解压：
-
-~~~bash
-bash /root/install-pve-rate-manager-3.0.0.sh --uninstall
-~~~
-
-或在源码目录执行 bash uninstall.sh。卸载先停服务，解除所有规则的限速，撤销自己的入口后删除程序；失败会停止，不继续删除程序。规则、日流量、日志和备份保留，重新安装可继续使用，过期日记录会自动清理。
-
-仅撤销界面入口、保持后台调度：
-
-~~~bash
-python3 /opt/pve-rate-manager/integration.py remove
-systemctl restart pvedaemon pveproxy
-~~~
-
-PVE 软件更新可能覆盖入口，更新后检查并用兼容安装包重装。不要把旧完整 PVE 文件覆盖到新版本上。安装失败会尝试恢复当次安装前的程序文件和服务状态，不覆盖当前规则、日流量。恢复快照必须用对应版本 deployment.py，且不能跨后续 PVE 包升级盲目还原。降级 2.0 前须先删除/转换自适应规则并解除 IFB，否则旧程序无法处理新规则。
-
-## 上传 GitHub
-
-解压 pve-rate-manager-3.0.0-github.zip，将里面 pve-rate-manager 文件夹的内容上传到仓库根目录。包含源码、测试、说明、GitHub Actions、单文件安装器、标准 tar 包和 SHA256SUMS；不要再套一层目录，也不要上传宿主机真实状态/备份文件。
-
-可创建 v3.0.0 Release 并附安装器、tar 包和 SHA256SUMS；发布说明见 RELEASE_NOTES.md。GitHub Actions 的离线与隔离网络任务需你上传后实际运行，不能把配置了任务当成已通过。
-
-## 技术参考
-
-- [Linux IFB ingress redirect](https://man7.org/linux/man-pages/man8/tc-mirred.8.html)
-- [HTB 流控](https://man7.org/linux/man-pages/man8/tc-htb.8.html)
-- [Linux 网卡统计口径](https://docs.kernel.org/networking/statistics.html)
-- [iproute2 filter JSON 输出](https://github.com/iproute2/iproute2/blob/main/tc/tc_filter.c)
-- [iproute2 class JSON 输出](https://github.com/iproute2/iproute2/blob/main/tc/tc_class.c)
-- [PVE 认证与 CSRF](https://github.com/proxmox/pve-manager/blob/master/PVE/HTTPServer.pm)
+见 VALIDATION.md。本地 Python 测试、原生入口契约和独立浏览器测试不代表真实 PVE 的 tc/IFB、TAP 抓包、PVE 登录/API/CSRF、服务升级与回退已实测。请先在测试 VM/网卡上验收；新安装没有规则，不会自动接管 VM 100。
 
 MIT License。
